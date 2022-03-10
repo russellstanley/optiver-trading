@@ -22,6 +22,7 @@
 #include <memory>
 #include <string>
 #include <unordered_set>
+#include <fstream>
 
 #include <boost/asio/io_context.hpp>
 
@@ -94,6 +95,11 @@ public:
                                   const std::array<unsigned long, ReadyTraderGo::TOP_LEVEL_COUNT> &bidVolumes) override;
 
 private:
+    std::ofstream ratioFile;
+
+    float midpointETF = 0;
+    float midpointFuture = 0;
+
     unsigned long mNextMessageId = 1;
     unsigned long mAskId = 0;
     unsigned long mAskPrice = 0;
