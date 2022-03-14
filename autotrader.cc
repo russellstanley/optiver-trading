@@ -85,23 +85,35 @@ void AutoTrader::OrderBookMessageHandler(Instrument instrument,
 
     if (instrument == Instrument::ETF)
     {
+        // Calculate the midpoint price of the ETF.
         midpointETF = (askPrices[0] + bidPrices[0]) / 2;
+        if (midpointETF % 100 != 0)
+        {
+            midpointETF += 50;
+        }
     }
 
     if (instrument == Instrument::FUTURE)
     {
+        float ratio = (float)midpointETF / (float)midpointFuture;
+
+        // Calculate the midpoint price of the Future.
         midpointFuture = (askPrices[0] + bidPrices[0]) / 2;
-        float ratio = midpointETF / midpointFuture;
+        if (midpointFuture % 100 != 0)
+        {
+            midpointFuture += 50;
+        }
+
         RLOG(LG_AT, LogLevel::LL_INFO) << "ratio: " << ratio;
 
         // Check if current pair trading opportunity has expired.
-        if (mAskId != 0 && ratio > 1)
+        if (mAskId != 0 && ratio <= 1)
         {
             SendCancelOrder(mAskId);
             RLOG(LG_AT, LogLevel::LL_INFO) << "sell order " << mAskId << " cancelled ";
             mAskId = 0;
         }
-        if (mBidId != 0 && ratio < 1)
+        if (mBidId != 0 && ratio >= 1)
         {
             SendCancelOrder(mBidId);
             RLOG(LG_AT, LogLevel::LL_INFO) << "buy order " << mBidId << " cancelled ";
@@ -113,12 +125,16 @@ void AutoTrader::OrderBookMessageHandler(Instrument instrument,
         {
             mBidId = mNextMessageId++;
             SendInsertOrder(mBidId, Side::BUY, midpointFuture, LOT_SIZE, Lifespan::GOOD_FOR_DAY);
+            RLOG(LG_AT, LogLevel::LL_INFO) << "sending buy order " << mBidId
+                                           << " bid price: " << midpointFuture;
             mBids.emplace(mBidId);
         }
         if (mAskId == 0 && ratio > MAX_RATIO && mPosition - LOT_SIZE > -POSITION_LIMIT)
         {
             mAskId = mNextMessageId++;
             SendInsertOrder(mAskId, Side::SELL, midpointFuture, LOT_SIZE, Lifespan::GOOD_FOR_DAY);
+            RLOG(LG_AT, LogLevel::LL_INFO) << "sending sell order " << mAskId
+                                           << " ask price: " << midpointFuture;
             mAsks.emplace(mAskId);
         }
     }

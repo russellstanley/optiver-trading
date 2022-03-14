@@ -94,8 +94,8 @@ public:
                                   const std::array<unsigned long, ReadyTraderGo::TOP_LEVEL_COUNT> &bidVolumes) override;
 
 private:
-    float midpointETF = 0;    // Midpoint between the best bid and ask price for the ETF.
-    float midpointFuture = 0; // Midpoint between the best bid and ask price for the Future.
+    unsigned long midpointETF = 0;    // Midpoint between the best bid and ask price for the ETF.
+    unsigned long midpointFuture = 0; // Midpoint between the best bid and ask price for the Future.
 
     unsigned long mNextMessageId = 1;
     unsigned long mAskId = 0;
