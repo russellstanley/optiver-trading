@@ -22,6 +22,7 @@
 #include <memory>
 #include <string>
 #include <unordered_set>
+#include <fstream>
 
 #include <boost/asio/io_context.hpp>
 
@@ -94,15 +95,16 @@ public:
                                   const std::array<unsigned long, ReadyTraderGo::TOP_LEVEL_COUNT> &bidVolumes) override;
 
 private:
-    unsigned long midpointETF = 0;    // Midpoint between the best bid and ask price for the ETF.
-    unsigned long midpointFuture = 0; // Midpoint between the best bid and ask price for the Future.
+    unsigned long midpointETF = 0;    // Midpoint price of ETF.
+    unsigned long midpointFuture = 0; // Midpoint price of the Future.
+    unsigned long spreadETF = 0;      // Bid-Ask spread of the ETF.
+
+    unsigned long lastOrder = 0; // Time the last market making orders were sent.
+    signed long mPosition = 0;   // The current position.
 
     unsigned long mNextMessageId = 1;
     unsigned long mAskId = 0;
-    // unsigned long mAskPrice = 0;
     unsigned long mBidId = 0;
-    // unsigned long mBidPrice = 0;
-    signed long mPosition = 0;
     std::unordered_set<unsigned long> mAsks;
     std::unordered_set<unsigned long> mBids;
 };

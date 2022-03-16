@@ -27,20 +27,20 @@ using namespace ReadyTraderGo;
 
 RTG_INLINE_GLOBAL_LOGGER_WITH_CHANNEL(LG_AT, "AUTO")
 
+// General constants
 constexpr int LOT_SIZE = 10;
 constexpr int POSITION_LIMIT = 100;
 constexpr int TICK_SIZE_IN_CENTS = 100;
 
+// Pairs trading constants
 constexpr float MIN_RATIO = 0.995;
 constexpr float MAX_RATIO = 1.005;
 
-/* IDEAS
-
-Increase logging
-Measure the bid-ask spread
-Implement a way to ammend orders
-
-*/
+// Market making constants
+constexpr int MAX_TIME = 100;
+constexpr int MIN_SPREAD = 800;
+constexpr int PRICE_ADJUSTMENT = 200;
+constexpr int MARKET_LOT_SIZE = 20;
 
 AutoTrader::AutoTrader(boost::asio::io_context &context) : BaseAutoTrader(context)
 {
@@ -83,58 +83,32 @@ void AutoTrader::OrderBookMessageHandler(Instrument instrument,
                                    << "; bid prices: " << bidPrices[0]
                                    << "; bid volumes: " << bidVolumes[0];
 
+    // MARKET MAKING
     if (instrument == Instrument::ETF)
     {
-        // Calculate the midpoint price of the ETF.
-        midpointETF = (askPrices[0] + bidPrices[0]) / 2;
-        if (midpointETF % 100 != 0)
-        {
-            midpointETF += 50;
-        }
-    }
+        spreadETF = (askPrices[0] - bidPrices[0]);
 
-    if (instrument == Instrument::FUTURE)
-    {
-        float ratio = (float)midpointETF / (float)midpointFuture;
-
-        // Calculate the midpoint price of the Future.
-        midpointFuture = (askPrices[0] + bidPrices[0]) / 2;
-        if (midpointFuture % 100 != 0)
-        {
-            midpointFuture += 50;
-        }
-
-        RLOG(LG_AT, LogLevel::LL_INFO) << "ratio: " << ratio;
-
-        // Check if current pair trading opportunity has expired.
-        if (mAskId != 0 && ratio <= 1)
-        {
-            SendCancelOrder(mAskId);
-            RLOG(LG_AT, LogLevel::LL_INFO) << "sell order " << mAskId << " cancelled ";
-            mAskId = 0;
-        }
-        if (mBidId != 0 && ratio >= 1)
+        // Cancel market making if enough time has lapsed.
+        if (mBidId != 0 && (sequenceNumber - lastOrder) > MAX_TIME)
         {
             SendCancelOrder(mBidId);
-            RLOG(LG_AT, LogLevel::LL_INFO) << "buy order " << mBidId << " cancelled ";
-            mBidId = 0;
+        }
+        if (mAskId != 0 && (sequenceNumber - lastOrder) > MAX_TIME)
+        {
+            SendCancelOrder(mAskId);
         }
 
-        // Check if a pair trading opportunity exists.
-        if (mBidId == 0 && ratio < MIN_RATIO && mPosition + LOT_SIZE < POSITION_LIMIT)
+        // Check for market making opportunity.
+        if (mBidId == 0 && mAskId == 0 && spreadETF >= MIN_SPREAD && mPosition + MARKET_LOT_SIZE < POSITION_LIMIT && mPosition - MARKET_LOT_SIZE > -POSITION_LIMIT)
         {
+            lastOrder = sequenceNumber;
+
             mBidId = mNextMessageId++;
-            SendInsertOrder(mBidId, Side::BUY, midpointFuture, LOT_SIZE, Lifespan::GOOD_FOR_DAY);
-            RLOG(LG_AT, LogLevel::LL_INFO) << "sending buy order " << mBidId
-                                           << " bid price: " << midpointFuture;
+            SendInsertOrder(mBidId, Side::BUY, bidPrices[0] + PRICE_ADJUSTMENT, MARKET_LOT_SIZE, Lifespan::GOOD_FOR_DAY);
             mBids.emplace(mBidId);
-        }
-        if (mAskId == 0 && ratio > MAX_RATIO && mPosition - LOT_SIZE > -POSITION_LIMIT)
-        {
+
             mAskId = mNextMessageId++;
-            SendInsertOrder(mAskId, Side::SELL, midpointFuture, LOT_SIZE, Lifespan::GOOD_FOR_DAY);
-            RLOG(LG_AT, LogLevel::LL_INFO) << "sending sell order " << mAskId
-                                           << " ask price: " << midpointFuture;
+            SendInsertOrder(mAskId, Side::SELL, askPrices[0] - PRICE_ADJUSTMENT, MARKET_LOT_SIZE, Lifespan::GOOD_FOR_DAY);
             mAsks.emplace(mAskId);
         }
     }
