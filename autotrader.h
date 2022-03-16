@@ -99,9 +99,8 @@ private:
 
     unsigned long mNextMessageId = 1;
     unsigned long mAskId = 0;
-    // unsigned long mAskPrice = 0;
     unsigned long mBidId = 0;
-    // unsigned long mBidPrice = 0;
+
     signed long mPosition = 0;
     std::unordered_set<unsigned long> mAsks;
     std::unordered_set<unsigned long> mBids;

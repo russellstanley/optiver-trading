@@ -34,14 +34,6 @@ constexpr int TICK_SIZE_IN_CENTS = 100;
 constexpr float MIN_RATIO = 0.995;
 constexpr float MAX_RATIO = 1.005;
 
-/* IDEAS
-
-Increase logging
-Measure the bid-ask spread
-Implement a way to ammend orders
-
-*/
-
 AutoTrader::AutoTrader(boost::asio::io_context &context) : BaseAutoTrader(context)
 {
 }
@@ -120,11 +112,26 @@ void AutoTrader::OrderBookMessageHandler(Instrument instrument,
             mBidId = 0;
         }
 
+        // Off-load position
+        if (mBidId == 0 && mPosition <= -(POSITION_LIMIT - LOT_SIZE))
+        {
+            mBidId = mNextMessageId++;
+            SendInsertOrder(mBidId, Side::BUY, askPrices[0], 50, Lifespan::GOOD_FOR_DAY);
+            mBids.emplace(mBidId);
+        }
+
+        if (mAskId == 0 && mPosition >= (POSITION_LIMIT - LOT_SIZE))
+        {
+            mAskId = mNextMessageId++;
+            SendInsertOrder(mAskId, Side::SELL, bidPrices[0], 50, Lifespan::GOOD_FOR_DAY);
+            mAsks.emplace(mAskId);
+        }
+
         // Check if a pair trading opportunity exists.
         if (mBidId == 0 && ratio < MIN_RATIO && mPosition + LOT_SIZE < POSITION_LIMIT)
         {
             mBidId = mNextMessageId++;
-            SendInsertOrder(mBidId, Side::BUY, midpointFuture, LOT_SIZE, Lifespan::GOOD_FOR_DAY);
+            SendInsertOrder(mBidId, Side::BUY, askPrices[0], LOT_SIZE, Lifespan::GOOD_FOR_DAY);
             RLOG(LG_AT, LogLevel::LL_INFO) << "sending buy order " << mBidId
                                            << " bid price: " << midpointFuture;
             mBids.emplace(mBidId);
@@ -132,7 +139,7 @@ void AutoTrader::OrderBookMessageHandler(Instrument instrument,
         if (mAskId == 0 && ratio > MAX_RATIO && mPosition - LOT_SIZE > -POSITION_LIMIT)
         {
             mAskId = mNextMessageId++;
-            SendInsertOrder(mAskId, Side::SELL, midpointFuture, LOT_SIZE, Lifespan::GOOD_FOR_DAY);
+            SendInsertOrder(mAskId, Side::SELL, bidPrices[0], LOT_SIZE, Lifespan::GOOD_FOR_DAY);
             RLOG(LG_AT, LogLevel::LL_INFO) << "sending sell order " << mAskId
                                            << " ask price: " << midpointFuture;
             mAsks.emplace(mAskId);
