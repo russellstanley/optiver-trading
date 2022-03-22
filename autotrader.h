@@ -93,9 +93,17 @@ public:
                                   const std::array<unsigned long, ReadyTraderGo::TOP_LEVEL_COUNT> &bidPrices,
                                   const std::array<unsigned long, ReadyTraderGo::TOP_LEVEL_COUNT> &bidVolumes) override;
 
+    // Calculate the midpoint price of the given instrument.
+    void setMidpoint(ReadyTraderGo::Instrument instrument,
+                     unsigned long bidPrice,
+                     unsigned long askPrice);
+
+    // Calculate the purchase volume for an order.
+    int setVolume(float ratio);
+
 private:
-    unsigned long midpointETF = 0;    // Midpoint between the best bid and ask price for the ETF.
-    unsigned long midpointFuture = 0; // Midpoint between the best bid and ask price for the Future.
+    unsigned long midpointETF = 1;    // Midpoint between the best bid and ask price for the ETF.
+    unsigned long midpointFuture = 1; // Midpoint between the best bid and ask price for the Future.
 
     unsigned long mNextMessageId = 1;
     unsigned long mAskId = 0;

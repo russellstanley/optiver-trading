@@ -1,6 +1,6 @@
 {
   "Engine": {
-    "MarketDataFile": "data/market_data.csv",
+    "MarketDataFile": "data/market_data_tournament1.csv",
     "MarketEventInterval": 0.05,
     "MarketOpenDelay": 5.0,
     "MatchEventsFile": "match_events.csv",

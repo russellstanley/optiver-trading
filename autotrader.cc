@@ -23,11 +23,18 @@
 
 #include "autotrader.h"
 
+/*
+TODO:
+2. Adaptive pair-trading, aka buy and sell amount based on the ratio between the prices
+
+3. Investigate the best prices to buy/sell.
+*/
+
 using namespace ReadyTraderGo;
 
 RTG_INLINE_GLOBAL_LOGGER_WITH_CHANNEL(LG_AT, "AUTO")
 
-constexpr int LOT_SIZE = 10;
+constexpr int LOT_SIZE = 20;
 constexpr int POSITION_LIMIT = 100;
 constexpr int TICK_SIZE_IN_CENTS = 100;
 
@@ -75,26 +82,12 @@ void AutoTrader::OrderBookMessageHandler(Instrument instrument,
                                    << "; bid prices: " << bidPrices[0]
                                    << "; bid volumes: " << bidVolumes[0];
 
+    int volume = LOT_SIZE;
+    setMidpoint(instrument, bidPrices[0], askPrices[0]);
+
     if (instrument == Instrument::ETF)
     {
-        // Calculate the midpoint price of the ETF.
-        midpointETF = (askPrices[0] + bidPrices[0]) / 2;
-        if (midpointETF % 100 != 0)
-        {
-            midpointETF += 50;
-        }
-    }
-
-    if (instrument == Instrument::FUTURE)
-    {
         float ratio = (float)midpointETF / (float)midpointFuture;
-
-        // Calculate the midpoint price of the Future.
-        midpointFuture = (askPrices[0] + bidPrices[0]) / 2;
-        if (midpointFuture % 100 != 0)
-        {
-            midpointFuture += 50;
-        }
 
         RLOG(LG_AT, LogLevel::LL_INFO) << "ratio: " << ratio;
 
@@ -112,35 +105,37 @@ void AutoTrader::OrderBookMessageHandler(Instrument instrument,
             mBidId = 0;
         }
 
-        // Off-load position
-        if (mBidId == 0 && mPosition <= -(POSITION_LIMIT - LOT_SIZE))
-        {
-            mBidId = mNextMessageId++;
-            SendInsertOrder(mBidId, Side::BUY, askPrices[0], 50, Lifespan::GOOD_FOR_DAY);
-            mBids.emplace(mBidId);
-        }
-
-        if (mAskId == 0 && mPosition >= (POSITION_LIMIT - LOT_SIZE))
-        {
-            mAskId = mNextMessageId++;
-            SendInsertOrder(mAskId, Side::SELL, bidPrices[0], 50, Lifespan::GOOD_FOR_DAY);
-            mAsks.emplace(mAskId);
-        }
-
         // Check if a pair trading opportunity exists.
-        if (mBidId == 0 && ratio < MIN_RATIO && mPosition + LOT_SIZE < POSITION_LIMIT)
+        if (mBidId == 0 && ratio < MIN_RATIO && mPosition < POSITION_LIMIT)
         {
+            volume = LOT_SIZE;
+            // Determine the purchase volume
+            if (mPosition >= (POSITION_LIMIT - LOT_SIZE))
+            {
+                volume = POSITION_LIMIT - abs(mPosition);
+            }
+
             mBidId = mNextMessageId++;
-            SendInsertOrder(mBidId, Side::BUY, askPrices[0], LOT_SIZE, Lifespan::GOOD_FOR_DAY);
+            SendInsertOrder(mBidId, Side::BUY, askPrices[0], volume, Lifespan::GOOD_FOR_DAY);
             RLOG(LG_AT, LogLevel::LL_INFO) << "sending buy order " << mBidId
+                                           << " volume: " << volume
                                            << " bid price: " << midpointFuture;
             mBids.emplace(mBidId);
         }
-        if (mAskId == 0 && ratio > MAX_RATIO && mPosition - LOT_SIZE > -POSITION_LIMIT)
+
+        if (mAskId == 0 && ratio > MAX_RATIO && mPosition > -POSITION_LIMIT)
         {
+            volume = LOT_SIZE;
+            // Determine the purchase volume
+            if (mPosition <= -(POSITION_LIMIT - LOT_SIZE))
+            {
+                volume = POSITION_LIMIT - abs(mPosition);
+            }
+
             mAskId = mNextMessageId++;
-            SendInsertOrder(mAskId, Side::SELL, bidPrices[0], LOT_SIZE, Lifespan::GOOD_FOR_DAY);
+            SendInsertOrder(mAskId, Side::SELL, bidPrices[0], volume, Lifespan::GOOD_FOR_DAY);
             RLOG(LG_AT, LogLevel::LL_INFO) << "sending sell order " << mAskId
+                                           << " volume: " << volume
                                            << " ask price: " << midpointFuture;
             mAsks.emplace(mAskId);
         }
@@ -201,4 +196,39 @@ void AutoTrader::TradeTicksMessageHandler(Instrument instrument,
                                    << "; ask volumes: " << askVolumes[0]
                                    << "; bid prices: " << bidPrices[0]
                                    << "; bid volumes: " << bidVolumes[0];
+}
+
+void AutoTrader::setMidpoint(Instrument instrument,
+                             unsigned long bidPrice,
+                             unsigned long askPrice)
+{
+    // Check for undefined division.
+    if (bidPrice == 0 || askPrice == 0)
+    {
+        return;
+    }
+
+    if (instrument == Instrument::FUTURE)
+    {
+        midpointFuture = (askPrice + bidPrice) / 2;
+        if (midpointFuture % 100 != 0)
+        {
+            midpointFuture += 50;
+        }
+    }
+
+    if (instrument == Instrument::ETF)
+    {
+        midpointETF = (askPrice + bidPrice) / 2;
+        if (midpointETF % 100 != 0)
+        {
+            midpointETF += 50;
+        }
+    }
+}
+
+int AutoTrader::setVolume(float ratio)
+{
+    // TODO: Determine a way to set the volume
+    return LOT_SIZE;
 }
