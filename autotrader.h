@@ -28,6 +28,8 @@
 #include <ready_trader_go/baseautotrader.h>
 #include <ready_trader_go/types.h>
 
+// #include <fstream> //REMOVE THIS
+
 class AutoTrader : public ReadyTraderGo::BaseAutoTrader
 {
 public:
@@ -99,9 +101,11 @@ public:
                      unsigned long askPrice);
 
     // Calculate the purchase volume for an order.
-    int setVolume(float ratio);
+    int setVolume(float ratio, ReadyTraderGo::Side side);
 
 private:
+    // std::ofstream ratioFile; // Remove this
+
     unsigned long midpointETF = 1;    // Midpoint between the best bid and ask price for the ETF.
     unsigned long midpointFuture = 1; // Midpoint between the best bid and ask price for the Future.
 
@@ -109,7 +113,10 @@ private:
     unsigned long mAskId = 0;
     unsigned long mBidId = 0;
 
-    signed long mPosition = 0;
+    float maxRatio = 1.0;
+    float minRatio = 1.0;
+
+    signed long mPosition = 0; // Current postion of the autotrader
     std::unordered_set<unsigned long> mAsks;
     std::unordered_set<unsigned long> mBids;
 };

@@ -38,15 +38,21 @@ constexpr int LOT_SIZE = 20;
 constexpr int POSITION_LIMIT = 100;
 constexpr int TICK_SIZE_IN_CENTS = 100;
 
-constexpr float MIN_RATIO = 0.995;
-constexpr float MAX_RATIO = 1.005;
+constexpr float BUY_RATIO = 0.995;
+constexpr float SELL_RATIO = 1.005;
+
+constexpr float DECAY_RATE = 0.0001; // 0.01%
+constexpr float DECAY_BUY_LIMIT = 0.998;
+constexpr float DECAY_SELL_LIMIT = 1.002;
 
 AutoTrader::AutoTrader(boost::asio::io_context &context) : BaseAutoTrader(context)
 {
+    // ratioFile.open("ratios.csv");
 }
 
 void AutoTrader::DisconnectHandler()
 {
+    // ratioFile.close();
     BaseAutoTrader::DisconnectHandler();
     RLOG(LG_AT, LogLevel::LL_INFO) << "execution connection lost";
 }
@@ -82,7 +88,6 @@ void AutoTrader::OrderBookMessageHandler(Instrument instrument,
                                    << "; bid prices: " << bidPrices[0]
                                    << "; bid volumes: " << bidVolumes[0];
 
-    int volume = LOT_SIZE;
     setMidpoint(instrument, bidPrices[0], askPrices[0]);
 
     if (instrument == Instrument::ETF)
@@ -105,16 +110,12 @@ void AutoTrader::OrderBookMessageHandler(Instrument instrument,
             mBidId = 0;
         }
 
-        // Check if a pair trading opportunity exists.
-        if (mBidId == 0 && ratio < MIN_RATIO && mPosition < POSITION_LIMIT)
-        {
-            volume = LOT_SIZE;
-            // Determine the purchase volume
-            if (mPosition >= (POSITION_LIMIT - LOT_SIZE))
-            {
-                volume = POSITION_LIMIT - abs(mPosition);
-            }
+        RLOG(LG_AT, LogLevel::LL_INFO) << "position: " << mPosition;
 
+        // Check if a pair trading opportunity exists.
+        if (mBidId == 0 && ratio < BUY_RATIO && mPosition < POSITION_LIMIT)
+        {
+            int volume = setVolume(ratio, Side::BUY);
             mBidId = mNextMessageId++;
             SendInsertOrder(mBidId, Side::BUY, askPrices[0], volume, Lifespan::GOOD_FOR_DAY);
             RLOG(LG_AT, LogLevel::LL_INFO) << "sending buy order " << mBidId
@@ -123,15 +124,9 @@ void AutoTrader::OrderBookMessageHandler(Instrument instrument,
             mBids.emplace(mBidId);
         }
 
-        if (mAskId == 0 && ratio > MAX_RATIO && mPosition > -POSITION_LIMIT)
+        if (mAskId == 0 && ratio > SELL_RATIO && mPosition > -POSITION_LIMIT)
         {
-            volume = LOT_SIZE;
-            // Determine the purchase volume
-            if (mPosition <= -(POSITION_LIMIT - LOT_SIZE))
-            {
-                volume = POSITION_LIMIT - abs(mPosition);
-            }
-
+            int volume = setVolume(ratio, Side::SELL);
             mAskId = mNextMessageId++;
             SendInsertOrder(mAskId, Side::SELL, bidPrices[0], volume, Lifespan::GOOD_FOR_DAY);
             RLOG(LG_AT, LogLevel::LL_INFO) << "sending sell order " << mAskId
@@ -227,8 +222,50 @@ void AutoTrader::setMidpoint(Instrument instrument,
     }
 }
 
-int AutoTrader::setVolume(float ratio)
+int AutoTrader::setVolume(float ratio, Side side)
 {
-    // TODO: Determine a way to set the volume
-    return LOT_SIZE;
+    int volume = LOT_SIZE;
+
+    // Check if max ratio shoud be updated or decreased
+    if (ratio > maxRatio)
+    {
+        maxRatio = ratio;
+        RLOG(LG_AT, LogLevel::LL_INFO) << "Opportunity Detected - "
+                                       << "Position: " << mPosition;
+        volume = LOT_SIZE * 2;
+    }
+    else if (maxRatio >= DECAY_SELL_LIMIT)
+    {
+        maxRatio = maxRatio - (maxRatio * DECAY_RATE);
+    }
+
+    // Check if min ratio should be updated
+    if (ratio < minRatio)
+    {
+        minRatio = ratio;
+        RLOG(LG_AT, LogLevel::LL_INFO) << "Opportunity Detected - "
+                                       << "Position: " << mPosition;
+        volume = LOT_SIZE * 2;
+    }
+    else if (minRatio <= DECAY_BUY_LIMIT)
+    {
+        minRatio = minRatio + (minRatio * DECAY_RATE);
+    }
+
+    // Check volume does not exeed our positon
+    if (side == Side::SELL && mPosition - volume <= -POSITION_LIMIT)
+    {
+        volume = POSITION_LIMIT - abs(mPosition);
+    }
+    else if (side == Side::BUY && mPosition + volume >= POSITION_LIMIT)
+    {
+        volume = POSITION_LIMIT - abs(mPosition);
+    }
+
+    RLOG(LG_AT, LogLevel::LL_INFO) << "position: " << mPosition
+                                   << " volume: " << volume;
+
+    // ratioFile << maxRatio << "," << ratio << "," << minRatio << "\n";
+
+    return volume;
 }
