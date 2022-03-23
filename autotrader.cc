@@ -34,16 +34,12 @@ using namespace ReadyTraderGo;
 
 RTG_INLINE_GLOBAL_LOGGER_WITH_CHANNEL(LG_AT, "AUTO")
 
-constexpr int LOT_SIZE = 10;
+constexpr int LOT_SIZE = 20;
 constexpr int POSITION_LIMIT = 100;
 constexpr int TICK_SIZE_IN_CENTS = 100;
 
-constexpr float BUY_RATIO = 0.995;  // Maximum ratio to execute a buy order.
-constexpr float SELL_RATIO = 1.005; // Minimum ratio to execute a sell order.
-
-constexpr int WINDOW_SIZE = 20;    // Moving average window size.
-constexpr float BAND_WIDTH = 1;    // Width of the bollinger band.
-constexpr int BOLLINGER_BONUS = 3; // Mutiplier for the bollinger band.
+constexpr int WINDOW_SIZE = 50;   // Moving average window size.
+constexpr float BAND_WIDTH = 3.5; // Width of the bollinger band.
 
 AutoTrader::AutoTrader(boost::asio::io_context &context) : BaseAutoTrader(context)
 {
@@ -109,16 +105,15 @@ void AutoTrader::OrderBookMessageHandler(Instrument instrument,
 
         // Set the high/low bollinger bands.
         bollingerBands(ratio);
+        if (sequenceNumber < WINDOW_SIZE)
+        {
+            return;
+        }
 
         // Check if a pair trading opportunity exists.
-        if (mBidId == 0 && ratio < BUY_RATIO && mPosition < POSITION_LIMIT)
+        if (mBidId == 0 && ratio < lowBollingerBand && ratio < 1 && mPosition < POSITION_LIMIT)
         {
             int volume = LOT_SIZE;
-            // Check bollinger band
-            if (ratio < lowBollingerBand)
-            {
-                volume = volume * BOLLINGER_BONUS;
-            }
             // Check position will not be exceded
             if (mPosition + volume >= POSITION_LIMIT)
             {
@@ -132,14 +127,9 @@ void AutoTrader::OrderBookMessageHandler(Instrument instrument,
             mBids.emplace(mBidId);
         }
 
-        if (mAskId == 0 && ratio > SELL_RATIO && mPosition > -POSITION_LIMIT)
+        if (mAskId == 0 && ratio > highBollingerBand && ratio > 1 && mPosition > -POSITION_LIMIT)
         {
             int volume = LOT_SIZE;
-            // Check bollinger band
-            if (ratio > highBollingerBand)
-            {
-                volume = volume * BOLLINGER_BONUS;
-            }
             // Check position will not be exceded
             if (mPosition - volume <= -POSITION_LIMIT)
             {
