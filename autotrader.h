@@ -28,8 +28,6 @@
 #include <ready_trader_go/baseautotrader.h>
 #include <ready_trader_go/types.h>
 
-// #include <fstream> //REMOVE THIS
-
 class AutoTrader : public ReadyTraderGo::BaseAutoTrader
 {
 public:
@@ -100,21 +98,22 @@ public:
                      unsigned long bidPrice,
                      unsigned long askPrice);
 
-    // Calculate the purchase volume for an order.
-    int setVolume(float ratio, ReadyTraderGo::Side side);
+    // Calculate the bollinger bands
+    void bollingerBands(float ratio);
 
 private:
-    // std::ofstream ratioFile; // Remove this
-
     unsigned long midpointETF = 1;    // Midpoint between the best bid and ask price for the ETF.
     unsigned long midpointFuture = 1; // Midpoint between the best bid and ask price for the Future.
+    float MA = 0;                     // Moving average.
+    float SD = 0;                     // Moving standard deviation.
+    std::vector<float> ratios;        // Last 20 recorded ratios.
+
+    float lowBollingerBand = 1;
+    float highBollingerBand = 1;
 
     unsigned long mNextMessageId = 1;
     unsigned long mAskId = 0;
     unsigned long mBidId = 0;
-
-    float maxRatio = 1.0;
-    float minRatio = 1.0;
 
     signed long mPosition = 0; // Current postion of the autotrader
     std::unordered_set<unsigned long> mAsks;
