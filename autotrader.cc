@@ -34,25 +34,23 @@ using namespace ReadyTraderGo;
 
 RTG_INLINE_GLOBAL_LOGGER_WITH_CHANNEL(LG_AT, "AUTO")
 
-constexpr int LOT_SIZE = 20;
+constexpr int LOT_SIZE = 10;
 constexpr int POSITION_LIMIT = 100;
 constexpr int TICK_SIZE_IN_CENTS = 100;
 
-constexpr float BUY_RATIO = 0.995;
-constexpr float SELL_RATIO = 1.005;
+constexpr float BUY_RATIO = 0.995;  // Maximum ratio to execute a buy order.
+constexpr float SELL_RATIO = 1.005; // Minimum ratio to execute a sell order.
 
-constexpr float DECAY_RATE = 0.0001; // 0.01%
-constexpr float DECAY_BUY_LIMIT = 0.998;
-constexpr float DECAY_SELL_LIMIT = 1.002;
+constexpr int WINDOW_SIZE = 20;    // Moving average window size.
+constexpr float BAND_WIDTH = 1;    // Width of the bollinger band.
+constexpr int BOLLINGER_BONUS = 3; // Mutiplier for the bollinger band.
 
 AutoTrader::AutoTrader(boost::asio::io_context &context) : BaseAutoTrader(context)
 {
-    // ratioFile.open("ratios.csv");
 }
 
 void AutoTrader::DisconnectHandler()
 {
-    // ratioFile.close();
     BaseAutoTrader::DisconnectHandler();
     RLOG(LG_AT, LogLevel::LL_INFO) << "execution connection lost";
 }
@@ -93,7 +91,6 @@ void AutoTrader::OrderBookMessageHandler(Instrument instrument,
     if (instrument == Instrument::ETF)
     {
         float ratio = (float)midpointETF / (float)midpointFuture;
-
         RLOG(LG_AT, LogLevel::LL_INFO) << "ratio: " << ratio;
 
         // Check if current pair trading opportunity has expired.
@@ -110,27 +107,48 @@ void AutoTrader::OrderBookMessageHandler(Instrument instrument,
             mBidId = 0;
         }
 
-        RLOG(LG_AT, LogLevel::LL_INFO) << "position: " << mPosition;
+        // Set the high/low bollinger bands.
+        bollingerBands(ratio);
 
         // Check if a pair trading opportunity exists.
         if (mBidId == 0 && ratio < BUY_RATIO && mPosition < POSITION_LIMIT)
         {
-            int volume = setVolume(ratio, Side::BUY);
+            int volume = LOT_SIZE;
+            // Check bollinger band
+            if (ratio < lowBollingerBand)
+            {
+                volume = volume * BOLLINGER_BONUS;
+            }
+            // Check position will not be exceded
+            if (mPosition + volume >= POSITION_LIMIT)
+            {
+                volume = POSITION_LIMIT - abs(mPosition);
+            }
+
             mBidId = mNextMessageId++;
             SendInsertOrder(mBidId, Side::BUY, askPrices[0], volume, Lifespan::GOOD_FOR_DAY);
             RLOG(LG_AT, LogLevel::LL_INFO) << "sending buy order " << mBidId
-                                           << " volume: " << volume
                                            << " bid price: " << midpointFuture;
             mBids.emplace(mBidId);
         }
 
         if (mAskId == 0 && ratio > SELL_RATIO && mPosition > -POSITION_LIMIT)
         {
-            int volume = setVolume(ratio, Side::SELL);
+            int volume = LOT_SIZE;
+            // Check bollinger band
+            if (ratio > highBollingerBand)
+            {
+                volume = volume * BOLLINGER_BONUS;
+            }
+            // Check position will not be exceded
+            if (mPosition - volume <= -POSITION_LIMIT)
+            {
+                volume = POSITION_LIMIT - abs(mPosition);
+            }
+
             mAskId = mNextMessageId++;
             SendInsertOrder(mAskId, Side::SELL, bidPrices[0], volume, Lifespan::GOOD_FOR_DAY);
             RLOG(LG_AT, LogLevel::LL_INFO) << "sending sell order " << mAskId
-                                           << " volume: " << volume
                                            << " ask price: " << midpointFuture;
             mAsks.emplace(mAskId);
         }
@@ -222,50 +240,38 @@ void AutoTrader::setMidpoint(Instrument instrument,
     }
 }
 
-int AutoTrader::setVolume(float ratio, Side side)
+void AutoTrader::bollingerBands(float ratio)
 {
-    int volume = LOT_SIZE;
+    float sum = 0;
 
-    // Check if max ratio shoud be updated or decreased
-    if (ratio > maxRatio)
+    if (ratios.size() < WINDOW_SIZE)
     {
-        maxRatio = ratio;
-        RLOG(LG_AT, LogLevel::LL_INFO) << "Opportunity Detected - "
-                                       << "Position: " << mPosition;
-        volume = LOT_SIZE * 2;
+        ratios.push_back(ratio);
     }
-    else if (maxRatio >= DECAY_SELL_LIMIT)
+    else
     {
-        maxRatio = maxRatio - (maxRatio * DECAY_RATE);
-    }
+        ratios.erase(ratios.begin());
+        ratios.push_back(ratio);
 
-    // Check if min ratio should be updated
-    if (ratio < minRatio)
-    {
-        minRatio = ratio;
-        RLOG(LG_AT, LogLevel::LL_INFO) << "Opportunity Detected - "
-                                       << "Position: " << mPosition;
-        volume = LOT_SIZE * 2;
-    }
-    else if (minRatio <= DECAY_BUY_LIMIT)
-    {
-        minRatio = minRatio + (minRatio * DECAY_RATE);
-    }
+        // Calculate the moving average.
+        sum = 0;
+        for (int i = 0; i < WINDOW_SIZE; i++)
+        {
+            sum += ratios[i];
+        }
+        MA = sum / WINDOW_SIZE;
 
-    // Check volume does not exeed our positon
-    if (side == Side::SELL && mPosition - volume <= -POSITION_LIMIT)
-    {
-        volume = POSITION_LIMIT - abs(mPosition);
+        // Calculate the moving standard deviation.
+        sum = 0;
+        for (int i = 0; i < WINDOW_SIZE; i++)
+        {
+            sum += pow(ratios[i] - MA, 2);
+        }
+        SD = sqrt(sum / WINDOW_SIZE);
+
+        // Set the bollinger band.
+        highBollingerBand = MA + BAND_WIDTH * SD;
+        lowBollingerBand = MA - BAND_WIDTH * SD;
     }
-    else if (side == Side::BUY && mPosition + volume >= POSITION_LIMIT)
-    {
-        volume = POSITION_LIMIT - abs(mPosition);
-    }
-
-    RLOG(LG_AT, LogLevel::LL_INFO) << "position: " << mPosition
-                                   << " volume: " << volume;
-
-    // ratioFile << maxRatio << "," << ratio << "," << minRatio << "\n";
-
-    return volume;
+    return;
 }
